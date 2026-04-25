@@ -1,0 +1,235 @@
+local http = require("http")
+local JWT = require("jwt")
+local schemaUtils = require("impl.schemaUtils")
+
+local positionsManager = require("voice.positionsManager")
+local inputManager = require("voice.inputManager")
+local persistentHttp = require("impl.persistentHttp")
+
+local M = {}
+
+-- Variables
+local authToken = ""
+local serverInfos = nil
+local positionsHttpClient = nil
+local loggedIn = false
+
+local tokenSchema = {
+    http_url = "string",
+    url = "string",
+    server_id = "string",
+    max_players = "number",
+    min_update_interval = "number",
+    theme = "?table",
+    iat = "number"
+}
+
+-- Helpers
+local function toStr(v)
+    if type(v) == "table" then return Util.JsonEncode(v) end
+    if type(v) == "string" then return v end
+    return tostring(v)
+end
+
+-- Functions
+local function loginAudioNode()
+    local headers = {
+        ["Authorization"] = "Bearer " .. authToken
+    }
+
+    logger.debug("Logging in to the audio node...")
+
+    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/auth", headers, {})
+
+    if success then
+        logger.info(logger.format("Logged in to the audio node successfully!", "green"))
+        loggedIn = true
+        return true
+    end
+    
+    logger.error(logger.format("Failed to log in to the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
+    return false
+end
+
+local function logoutAudioNode()
+    if not loggedIn then return true end
+    
+    local headers = {
+        ["Authorization"] = "Bearer " .. authToken
+    }
+
+    logger.debug("Logging out of the audio node...")
+
+    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/shutdown", headers, {})
+
+    if success then
+        logger.info(logger.format("Successfully logged out of the audio node!", "green"))
+        return true
+    end
+    
+    logger.error(logger.format("Failed to log out of the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
+    return false
+end
+
+local function disableAudioManager()
+    logger.warning("Disabling Audio Manager due to previous errors...")
+    MP.CancelEventTimer("BeamVoicePositionUpdateTimer")
+    if positionsHttpClient then positionsHttpClient:close() end
+    loggedIn = false
+    return true
+end
+
+local function authPlayer(player_id)
+    positionsManager.addPlayer(player_id)
+
+    local headers = {
+        ["Authorization"] = "Bearer " .. authToken
+    }
+
+    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/join", headers, {
+        playerid = player_id,
+        beammp_id = MP.GetPlayerIdentifiers(0).beammp or -1,
+        name = MP.GetPlayerName(player_id),
+        map = serverMap
+    })
+
+    if success and response and type(response.token) == "string" then
+        logger.info("Player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " joined the voice chat!")
+        return true, response.token
+    end
+
+    positionsManager.removePlayer(player_id)
+    if code == 400 then
+        logger.warning("Player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " failed to join the voice chat: " .. (response and response.error or "Unknown error"))
+        MP.SendChatMessage(player_id, "^cYou are already in the voice chat!")
+        return false
+    end
+
+    if code == 403 and response and response.error == "Server full" then
+        logger.warning("Player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " failed to join the voice chat: Server is full")
+        MP.SendChatMessage(player_id, "^cThe voice chat is currently full. Please try again later.")
+        return false
+    end
+
+    logger.error("Failed to authenticate player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " with the audio node: " .. (toStr(response) or "No response") .. logger.format(" (HTTP " .. code .. ")", "red"))
+    MP.SendChatMessage(player_id, "^cFailed to join the voice chat, please try again later.")
+    return false
+end
+
+local function removePlayer(player_id)
+    if not positionsManager.existsPlayer(player_id) then return false end
+    positionsManager.removePlayer(player_id)
+
+    local headers = {
+        ["Authorization"] = "Bearer " .. authToken
+    }
+
+    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/leave", headers, {
+        playerid = player_id
+    })
+
+    if success then
+        logger.info("Player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " left the voice chat.")
+        return true
+    end
+
+    logger.error("Failed to remove player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " from the audio node: " .. (toStr(response) or "No response") .. logger.format(" (HTTP " .. code .. ")", "red"))
+    return false
+end
+
+local function init(newAuthToken)
+    logger.info("Initializing Audio Manager...")
+    authToken = newAuthToken
+
+    -- Load and validate  auth token
+    local payload = JWT.parse(authToken).payload
+    if not payload or not schemaUtils.validateObject(payload, tokenSchema) then
+        logger.error(logger.format("Failed to parse auth token: Invalid token", "red"))
+        return false
+    end
+    serverInfos = payload
+    logger.info("The voice chat positions will be updated every " .. logger.format(serverInfos.min_update_interval .. "ms", "cyan"))
+    if serverInfos.max_players < MP.Get(3) then
+        logger.warning("The audio node allows up to " .. logger.format(serverInfos.max_players, "cyan") .. " players, but the server max player count is set to " .. logger.format(MP.Get(3), "cyan") .. ".")
+    end
+    
+    -- Login trough the audio node
+    if not loginAudioNode() then return false end
+    positionsManager.init()
+    inputManager.init(authToken, serverInfos)
+
+    -- Create persistent HTTP client for position updates
+    if not positionsHttpClient then
+        local err
+        positionsHttpClient, err = persistentHttp.fromUrl(serverInfos.http_url)
+        if not positionsHttpClient then
+            logger.error(logger.format("Failed to connect to audio node HTTP: " .. (err or "unknown error"), "red"))
+            disableAudioManager()
+            return false
+        end
+    end
+    
+    -- Register Events
+    MP.RegisterEvent("onShutdown", "BeamVoiceServerShutdownHandler")
+    MP.RegisterEvent("onPlayerDisconnect", "BeamVoicePlayerDisconnectHandler")
+
+    -- Start functions loop
+    MP.RegisterEvent("BeamVoicePositionUpdateTimer", "BeamVoicePositionUpdateTimerHandler")
+    MP.CreateEventTimer("BeamVoicePositionUpdateTimer", serverInfos.min_update_interval)
+
+    logger.info(logger.format("Audio Manager Initialized", "green"))
+    return true
+end
+
+-- Events Handlers
+function BeamVoicePositionUpdateTimerHandler()
+    if not serverInfos then return end
+    positionsManager.checkForTimeouts()
+
+    local headers = {
+        ["Authorization"] = "Bearer " .. authToken
+    }
+
+    local success, response, code = positionsHttpClient:json_post("/positions", headers, {
+        positions = positionsManager.getPositions()
+    })
+
+    if not success then
+        if type(response) == "string"  then
+            logger.error(logger.format("Failed to send positions data to the audio node: " .. response .. " (HTTP " .. code .. ")", "red"))
+            return
+        end
+
+        if code == 429 then
+            logger.debug("Rate limited by the audio node (" .. (response.retry_after_ms or "???") .. "ms too early), skipping this update")
+            return
+        end
+
+        if code == 401 and (response.error == "Stale server JWT" or response.error == "Server JWT was revoked") then
+            logger.error(logger.format("Another server instance has logged in with the same token!", "red"))
+            logger.warning(logger.format("If you belive this is an error, please rotate your auth key.", "red"))
+            logger.warning("If you are running multiple server instances for the same game, make sure each one has its own unique auth token.")
+            disableAudioManager()
+            return
+        end
+
+        logger.error(logger.format("Failed to send positions data to the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
+    end
+end
+
+function BeamVoicePlayerDisconnectHandler(player_id)
+    removePlayer(player_id)
+end
+
+function BeamVoiceServerShutdownHandler()
+    if positionsHttpClient then positionsHttpClient:close() end
+    logoutAudioNode()
+end
+
+-- Exports
+M.init = init
+M.authPlayer = authPlayer
+M.removePlayer = removePlayer
+M.isPlayerAuthenticated = function(player_id) return positionsManager.existsPlayer(player_id) end
+
+return M

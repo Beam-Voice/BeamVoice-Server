@@ -1,0 +1,3 @@
+# This is the BeamVoice config file.
+key = "change-me"
+debug = false

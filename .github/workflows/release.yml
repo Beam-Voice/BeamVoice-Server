@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Files/folders to exclude from the zip.
+# Dotfiles (.*) are always excluded.
+env:
+  EXCLUDE_LIST: |
+    README.md
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - distro: debian
+            version: "12"
+          - distro: debian
+            version: "13"
+          - distro: ubuntu
+            version: "22.04"
+          - distro: ubuntu
+            version: "24.04"
+
+    container:
+      image: ${{ matrix.distro }}:${{ matrix.version }}
+
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y git make gcc liblua5.3-dev zip
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build LuaSocket
+        run: |
+          git clone --depth 1 https://github.com/lunarmodules/luasocket.git /tmp/luasocket
+          cd /tmp/luasocket
+          make PLAT=linux LUAV=5.3 LUAINC_linux=/usr/include/lua5.3 linux
+
+      - name: Assemble package
+        shell: bash
+        run: |
+          mkdir -p lib/mime lib/socket
+          cp /tmp/luasocket/src/mime-*.so     lib/mime/core.so
+          cp /tmp/luasocket/src/socket-*.so   lib/socket/core.so
+          cp /tmp/luasocket/src/serial.so         lib/socket/
+          cp /tmp/luasocket/src/unix.so           lib/socket/
+
+          EXCLUDE_ARGS="-x '.*' -x '*/.*'"
+          while IFS= read -r entry; do
+            entry="$(echo "$entry" | xargs)"
+            [ -z "$entry" ] && continue
+            EXCLUDE_ARGS="$EXCLUDE_ARGS -x '$entry'"
+          done <<< "$EXCLUDE_LIST"
+
+          ZIPNAME="BeamVoice-Server-${{ matrix.distro }}-${{ matrix.version }}-x86_64.zip"
+          eval zip -r "/tmp/$ZIPNAME" . $EXCLUDE_ARGS
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeamVoice-Server-${{ matrix.distro }}-${{ matrix.version }}-x86_64
+          path: /tmp/BeamVoice-Server-${{ matrix.distro }}-${{ matrix.version }}-x86_64.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: BeamVoice Server ${{ github.ref_name }}
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            Files included in this release are:
+            ...
+          files: artifacts/**/*.zip
