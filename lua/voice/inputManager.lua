@@ -6,6 +6,7 @@ local M = {}
 -- Variables
 local authToken = ""
 local serverInfos = nil
+local initialized = false
 
 -- Helpers
 local function sendKeyEvent(player_id, key)
@@ -30,9 +31,11 @@ local function init(newAuthToken, newServerInfos)
     authToken = newAuthToken
     serverInfos = newServerInfos
 
+    if initialized then return end
     MP.RegisterEvent("voice_toggleMute", "BeamVoiceInputToggleMuteHandler")
     MP.RegisterEvent("voice_toggleMuteGroup", "BeamVoiceInputToggleMuteGroupHandler")
     MP.RegisterEvent("voice_toggleDeafenGroup", "BeamVoiceInputToggleDeafenGroupHandler")
+    initialized = true
 end
 
 -- Event Handlers

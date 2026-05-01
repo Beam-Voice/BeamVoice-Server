@@ -18,6 +18,7 @@ end
 local function randomizeTable(t)
     local randomized = {}
 
+    math.randomseed(os.time())
     for i, v in ipairs(t) do
         local randIndex = math.random(1, #randomized + 1)
         table.insert(randomized, randIndex, v)
@@ -88,7 +89,7 @@ local function getAuthServer()
 end
 
 -- Functions
-local function auth(serverKey) --/TODO: return success, authToken
+local function auth(serverKey)
     logger.info("Authenticating with Beam Voice service...")
     local usedAuthServer = getAuthServer()
     if not usedAuthServer then

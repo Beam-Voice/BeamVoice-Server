@@ -14,8 +14,8 @@ function BeamVoiceJoinDialogHandler(player_id, interaction_id)
 
     local success, token = audioManager.authPlayer(player_id)
     if success then
-        MP.SendChatMessage(player_id, "You just joined the voice chat !")
-        MP.TriggerClientEvent(player_id, "BeamVoice_openLink", "https://audio.beamvoice.net/?token=" .. token)  
+        MP.SendChatMessage(player_id, messagePrefix .. "You just joined the voice chat !")
+        MP.TriggerClientEvent(player_id, "BeamVoice_openLink", "https://audio.beamvoice.net/?token=" .. token)
     end
 end
 

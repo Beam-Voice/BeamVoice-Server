@@ -5,6 +5,7 @@ local timeoutDeleteSeconds = 30 -- In case of stale clients due to events
 
 --- Variables
 local playersPositions = {}
+local initialized = false
 
 local positionSchema = {
     camX = "number",
@@ -26,7 +27,9 @@ end
 local function init()
     logger.debug("Initializing Positions Manager...")
 
+    if initialized then return end
     MP.RegisterEvent("voice_updatePos", "BeamVoiceUpdatePositionHandler")
+    initialized = true
 end
 
 local function addPlayer(player_id)
@@ -48,7 +51,7 @@ local function removePlayer(player_id)
     if not existsPlayer(player_id) then return end
     playersPositions[tostring(player_id)] = nil
 end
- 
+
 local function checkForTimeouts()
     for playerId, playerData in pairs(playersPositions) do
         if(os.time() - playerData.lastUpdated > timeoutDeleteSeconds) then
@@ -75,5 +78,6 @@ M.existsPlayer = existsPlayer
 M.checkForTimeouts = checkForTimeouts
 
 M.getPositions = function() return playersPositions end
+M.clearPositions = function() playersPositions = {} end
 
 return M

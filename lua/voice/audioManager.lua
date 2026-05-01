@@ -5,6 +5,7 @@ local schemaUtils = require("impl.schemaUtils")
 local positionsManager = require("voice.positionsManager")
 local inputManager = require("voice.inputManager")
 local persistentHttp = require("impl.persistentHttp")
+local setTimeout = require("impl.setTimeout")
 
 local M = {}
 
@@ -13,6 +14,9 @@ local authToken = ""
 local serverInfos = nil
 local positionsHttpClient = nil
 local loggedIn = false
+local consecutiveFailures = 0
+local maxFailureSeonds = 5
+local reauthAfterSeconds = 60
 
 local tokenSchema = {
     http_url = "string",
@@ -43,17 +47,18 @@ local function loginAudioNode()
 
     if success then
         logger.info(logger.format("Logged in to the audio node successfully!", "green"))
+        MP.SendChatMessage(-1, messagePrefix .. "^bVoice chat is enabled on this server! Use ^6/vc ^bto join the voice chat.")
         loggedIn = true
         return true
     end
-    
+
     logger.error(logger.format("Failed to log in to the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
     return false
 end
 
 local function logoutAudioNode()
     if not loggedIn then return true end
-    
+
     local headers = {
         ["Authorization"] = "Bearer " .. authToken
     }
@@ -66,20 +71,27 @@ local function logoutAudioNode()
         logger.info(logger.format("Successfully logged out of the audio node!", "green"))
         return true
     end
-    
+
     logger.error(logger.format("Failed to log out of the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
     return false
 end
 
 local function disableAudioManager()
     logger.warning("Disabling Audio Manager due to previous errors...")
+    MP.SendChatMessage(-1, messagePrefix .. "^cVoice chat has been temporarily disabled due to issues.")
     MP.CancelEventTimer("BeamVoicePositionUpdateTimer")
-    if positionsHttpClient then positionsHttpClient:close() end
+    if positionsHttpClient then
+        positionsHttpClient:close()
+        positionsHttpClient = nil
+    end
+    positionsManager.clearPositions()
     loggedIn = false
     return true
 end
 
 local function authPlayer(player_id)
+    if not loggedIn then return false end
+
     positionsManager.addPlayer(player_id)
 
     local headers = {
@@ -101,24 +113,26 @@ local function authPlayer(player_id)
     positionsManager.removePlayer(player_id)
     if code == 400 then
         logger.warning("Player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " failed to join the voice chat: " .. (response and response.error or "Unknown error"))
-        MP.SendChatMessage(player_id, "^cYou are already in the voice chat!")
+        MP.SendChatMessage(player_id, messagePrefix .. "^cYou are already in the voice chat!")
         return false
     end
 
     if code == 403 and response and response.error == "Server full" then
         logger.warning("Player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " failed to join the voice chat: Server is full")
-        MP.SendChatMessage(player_id, "^cThe voice chat is currently full. Please try again later.")
+        MP.SendChatMessage(player_id, messagePrefix .. "^cThe voice chat is currently full. Please try again later.")
         return false
     end
 
     logger.error("Failed to authenticate player " .. logger.format(MP.GetPlayerName(player_id), "cyan") .. " with the audio node: " .. (toStr(response) or "No response") .. logger.format(" (HTTP " .. code .. ")", "red"))
-    MP.SendChatMessage(player_id, "^cFailed to join the voice chat, please try again later.")
+    MP.SendChatMessage(player_id, messagePrefix .. "^cFailed to join the voice chat, please try again later.")
     return false
 end
 
 local function removePlayer(player_id)
     if not positionsManager.existsPlayer(player_id) then return false end
     positionsManager.removePlayer(player_id)
+
+    if not loggedIn then return false end
 
     local headers = {
         ["Authorization"] = "Bearer " .. authToken
@@ -152,7 +166,7 @@ local function init(newAuthToken)
     if serverInfos.max_players < MP.Get(3) then
         logger.warning("The audio node allows up to " .. logger.format(serverInfos.max_players, "cyan") .. " players, but the server max player count is set to " .. logger.format(MP.Get(3), "cyan") .. ".")
     end
-    
+
     -- Login trough the audio node
     if not loginAudioNode() then return false end
     positionsManager.init()
@@ -168,7 +182,7 @@ local function init(newAuthToken)
             return false
         end
     end
-    
+
     -- Register Events
     MP.RegisterEvent("onShutdown", "BeamVoiceServerShutdownHandler")
     MP.RegisterEvent("onPlayerDisconnect", "BeamVoicePlayerDisconnectHandler")
@@ -195,13 +209,8 @@ function BeamVoicePositionUpdateTimerHandler()
     })
 
     if not success then
-        if type(response) == "string"  then
-            logger.error(logger.format("Failed to send positions data to the audio node: " .. response .. " (HTTP " .. code .. ")", "red"))
-            return
-        end
-
         if code == 429 then
-            logger.debug("Rate limited by the audio node (" .. (response.retry_after_ms or "???") .. "ms too early), skipping this update")
+            logger.debug("Rate limited by the audio node (" .. (response.retry_after_ms or "?") .. "ms too early), skipping this update")
             return
         end
 
@@ -213,8 +222,40 @@ function BeamVoicePositionUpdateTimerHandler()
             return
         end
 
-        logger.error(logger.format("Failed to send positions data to the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
+        if code == 401 then
+            logger.error(logger.format("Failed to send positions data to the audio node (Not authenticated, retrying to authenticate...)", "red"))
+            loggedIn = false
+            positionsManager.clearPositions()
+            MP.SendChatMessage(-1, messagePrefix .. "^cVoice chat has been temporarily disabled due to issues. Should be back shortly...")
+            if not loginAudioNode() then
+                logger.error(logger.format("Re-authentication failed, disabling audio manager.", "red"))
+                disableAudioManager()
+            end
+            return
+        end
+
+        if code == 502 then
+            consecutiveFailures = consecutiveFailures + 1
+            if (consecutiveFailures * serverInfos.min_update_interval / 1000 > maxFailureSeonds) then
+                logger.error(logger.format("Audio node is unavailable for more than " .. maxFailureSeonds .. " seconds, disabling audio manager.", "red"))
+                disableAudioManager()
+                logger.info(logger.format("Will try to re-auth the audio manager after a cooldown of " .. reauthAfterSeconds .. " seconds...", "yellow"))
+                setTimeout(reauthAfterSeconds * 1000, function()
+                    logger.info(logger.format("Re-enabling audio manager after cooldown...", "green"))
+                    authenticateServer()
+                end)
+                return
+            end
+            return
+        end
+
+        if type(response) == "string" then
+            logger.debugWarning(logger.format("Failed to send positions data to the audio node: " .. response .. " (HTTP " .. code .. ")", "red"))
+        else
+            logger.error(logger.format("Failed to send positions data to the audio node: " .. (toStr(response) or "No response") .. " (HTTP " .. code .. ")", "red"))
+        end
     end
+    consecutiveFailures = 0
 end
 
 function BeamVoicePlayerDisconnectHandler(player_id)
@@ -222,14 +263,20 @@ function BeamVoicePlayerDisconnectHandler(player_id)
 end
 
 function BeamVoiceServerShutdownHandler()
-    if positionsHttpClient then positionsHttpClient:close() end
+    if positionsHttpClient then
+        positionsHttpClient:close()
+        positionsHttpClient = nil
+    end
     logoutAudioNode()
 end
 
 -- Exports
 M.init = init
+M.disable = disableAudioManager
 M.authPlayer = authPlayer
 M.removePlayer = removePlayer
+
 M.isPlayerAuthenticated = function(player_id) return positionsManager.existsPlayer(player_id) end
+M.isLoggedIn = function() return loggedIn end
 
 return M
