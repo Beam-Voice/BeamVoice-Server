@@ -6,11 +6,12 @@ logger.setEnableDebugging(MP.Get(MP.Settings.Debug) or config.debug or false)
 local http = require("http")
 local authManager = require("voice.authManager")
 local audioManager = require("voice.audioManager")
-local authManager = require("voice.authManager")
+local apiManager = require("voice.apiManager")
+local gcManager = require("voice.gcManager")
+
 local joinMessageManager = require("voice.joinMessageManager")
 
 -- Variables
-local authToken = "" -- Server's auth token
 local audioNode = "" -- Audio Node url
 serverMap = (MP.Get(MP.Settings.Map) or "/levels/gridmap_v2/info.json"):gsub('/levels/', ''):gsub('/info.json', '')
 messagePrefix = "^r[^6^lBeamVoice^r] "
@@ -25,16 +26,23 @@ function authenticateServer()
         return false
     end
 
-    local success, newAuthToken = authManager.auth(serverKey)
-    if not success then
+    if not authManager.auth(serverKey) then
         logger.error(logger.format("Failed to authenticate with the Beam Voice service. Shutting down the plugin...", "red"))
         return false
     end
 
-    authToken = newAuthToken
-
-    if not audioManager.init(authToken) then
+    if not audioManager.init() then
         logger.error(logger.format("Failed to initialize the audio manager.", "red"))
+        return false
+    end
+
+    if not apiManager.init() then
+        logger.error(logger.format("Failed to initialize the API manager.", "red"))
+        return false
+    end
+
+    if not gcManager.init() then
+        logger.error(logger.format("Failed to initialize the Group Chat manager.", "red"))
         return false
     end
     return true
@@ -65,6 +73,31 @@ function BeamVoiceOnChatMessageHandler(player_id, _, message)
         end
         return 1
     end
+
+    if message:sub(1, 4) == "/gc " then
+        local groupChatId = message:sub(5)
+        if gcManager.addPlayer(groupChatId, player_id) then
+            MP.SendChatMessage(player_id, messagePrefix .. "You just joined the group chat ^b" .. groupChatId .. "^r !")
+        else
+            MP.SendChatMessage(player_id, messagePrefix .. "Failed to join the group chat ^b" .. groupChatId .. "^r. Please check the group chat ID and try again.")
+        end
+        return 1
+    end
+
+    if message == "/gcl" or message == "/gcleave" then
+        if not gcManager.isPlayerInAnyGroup(player_id) then
+            MP.SendChatMessage(player_id, messagePrefix .. "You are not in any group chat.")
+            return 1
+        end
+
+        local success = gcManager.removePlayer(gcManager.getPlayerGroup(player_id), player_id)
+        if success then
+            MP.SendChatMessage(player_id, messagePrefix .. "You just left the group chat !")
+        else
+            MP.SendChatMessage(player_id, messagePrefix .. "Failed to leave the group chat.")
+        end
+        return 1
+    end
 end
 MP.RegisterEvent("onChatMessage", "BeamVoiceOnChatMessageHandler")
 
@@ -92,3 +125,8 @@ function BeamVoiceOnConsoleInputHandler(cmd)
     end
 end
 MP.RegisterEvent("onConsoleInput", "BeamVoiceOnConsoleInputHandler")
+
+for i = 1, authManager.getServerInfos().audio_channels do
+    logger.info("Creating test group chat " .. i)
+    gcManager.create("Test Group Chat " .. i)
+end

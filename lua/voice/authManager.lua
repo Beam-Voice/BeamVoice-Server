@@ -1,11 +1,25 @@
 local http = require("http")
 local jwt = require("jwt")
 local socket = require("libs.socket")
+local schemaUtils = require("impl.schemaUtils")
 
 local M = {}
 
 -- Variables
 local authServers = { "auth1.beamvoice.net", "auth2.beamvoice.net", "auth3.beamvoice.net" }
+local authToken = nil
+local serverInfos = nil
+
+local tokenSchema = {
+    http_url = "string",
+    url = "string",
+    server_id = "string",
+    max_players = "number",
+    min_update_interval = "number",
+    audio_channels = "number",
+    theme = "?table",
+    iat = "number"
+}
 
 -- Helpers
 local function isValidUUIDv4(uuid)
@@ -107,15 +121,24 @@ local function auth(serverKey)
 
     local success, response, code = http.post("http://" .. usedAuthServer .. "/auth", headers, {})
     if success and type(response) == "table" and jwt.isValid(response.token) then
-        return true, response.token
+        local payload = jwt.parse(response.token).payload
+        if not payload or not schemaUtils.validateObject(payload, tokenSchema) then
+            logger.error(logger.format("Authentication failed: invalid token payload.", "red"))
+            return false
+        end
+        authToken = response.token
+        serverInfos = payload
+        return true
     else
         logger.error(logger.format("Authentication failed.", "red"))
-        return false, nil
+        return false
     end
 end
 
 -- Exports
 M.auth = auth
+M.getToken = function() return authToken end
+M.getServerInfos = function() return serverInfos end
 
 M.isValidUUIDv4 = isValidUUIDv4
 

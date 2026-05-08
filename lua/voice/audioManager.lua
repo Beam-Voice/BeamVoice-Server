@@ -1,7 +1,6 @@
 local http = require("http")
-local JWT = require("jwt")
-local schemaUtils = require("impl.schemaUtils")
 
+local authManager = require("voice.authManager")
 local positionsManager = require("voice.positionsManager")
 local inputManager = require("voice.inputManager")
 local persistentHttp = require("impl.persistentHttp")
@@ -10,23 +9,11 @@ local setTimeout = require("impl.setTimeout")
 local M = {}
 
 -- Variables
-local authToken = ""
-local serverInfos = nil
 local positionsHttpClient = nil
 local loggedIn = false
 local consecutiveFailures = 0
 local maxFailureSeonds = 5
 local reauthAfterSeconds = 60
-
-local tokenSchema = {
-    http_url = "string",
-    url = "string",
-    server_id = "string",
-    max_players = "number",
-    min_update_interval = "number",
-    theme = "?table",
-    iat = "number"
-}
 
 -- Helpers
 local function toStr(v)
@@ -38,12 +25,12 @@ end
 -- Functions
 local function loginAudioNode()
     local headers = {
-        ["Authorization"] = "Bearer " .. authToken
+        ["Authorization"] = "Bearer " .. authManager.getToken()
     }
 
     logger.debug("Logging in to the audio node...")
 
-    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/auth", headers, {})
+    local success, response, code = http.post("http://" .. authManager.getServerInfos().http_url .. "/auth", headers, {})
 
     if success then
         logger.info(logger.format("Logged in to the audio node successfully!", "green"))
@@ -60,12 +47,12 @@ local function logoutAudioNode()
     if not loggedIn then return true end
 
     local headers = {
-        ["Authorization"] = "Bearer " .. authToken
+        ["Authorization"] = "Bearer " .. authManager.getToken()
     }
 
     logger.debug("Logging out of the audio node...")
 
-    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/shutdown", headers, {})
+    local success, response, code = http.post("http://" .. authManager.getServerInfos().http_url .. "/shutdown", headers, {})
 
     if success then
         logger.info(logger.format("Successfully logged out of the audio node!", "green"))
@@ -95,10 +82,10 @@ local function authPlayer(player_id)
     positionsManager.addPlayer(player_id)
 
     local headers = {
-        ["Authorization"] = "Bearer " .. authToken
+        ["Authorization"] = "Bearer " .. authManager.getToken()
     }
 
-    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/join", headers, {
+    local success, response, code = http.post("http://" .. authManager.getServerInfos().http_url .. "/join", headers, {
         playerid = player_id,
         beammp_id = MP.GetPlayerIdentifiers(0).beammp or -1,
         name = MP.GetPlayerName(player_id),
@@ -135,10 +122,10 @@ local function removePlayer(player_id)
     if not loggedIn then return false end
 
     local headers = {
-        ["Authorization"] = "Bearer " .. authToken
+        ["Authorization"] = "Bearer " .. authManager.getToken()
     }
 
-    local success, response, code = http.post("http://" .. serverInfos.http_url .. "/leave", headers, {
+    local success, response, code = http.post("http://" .. authManager.getServerInfos().http_url .. "/leave", headers, {
         playerid = player_id
     })
 
@@ -151,26 +138,24 @@ local function removePlayer(player_id)
     return false
 end
 
-local function init(newAuthToken)
+local function init()
     logger.info("Initializing Audio Manager...")
-    authToken = newAuthToken
 
-    -- Load and validate  auth token
-    local payload = JWT.parse(authToken).payload
-    if not payload or not schemaUtils.validateObject(payload, tokenSchema) then
-        logger.error(logger.format("Failed to parse auth token: Invalid token", "red"))
+    local serverInfos = authManager.getServerInfos()
+    if not serverInfos then
+        logger.error(logger.format("Failed to initialize Audio Manager: missing server infos", "red"))
         return false
     end
-    serverInfos = payload
+
     logger.info("The voice chat positions will be updated every " .. logger.format(serverInfos.min_update_interval .. "ms", "cyan"))
-    if serverInfos.max_players < MP.Get(3) then
-        logger.warning("The audio node allows up to " .. logger.format(serverInfos.max_players, "cyan") .. " players, but the server max player count is set to " .. logger.format(MP.Get(3), "cyan") .. ".")
+    if serverInfos.max_players < MP.Get(MP.Settings.MaxPlayers) then
+        logger.warning("The audio node allows up to " .. logger.format(serverInfos.max_players, "cyan") .. " players, but the server max player count is set to " .. logger.format(MP.Get(MP.Settings.MaxPlayers), "cyan") .. ".")
     end
 
     -- Login trough the audio node
     if not loginAudioNode() then return false end
     positionsManager.init()
-    inputManager.init(authToken, serverInfos)
+    inputManager.init()
 
     -- Create persistent HTTP client for position updates
     if not positionsHttpClient then
@@ -197,11 +182,13 @@ end
 
 -- Events Handlers
 function BeamVoicePositionUpdateTimerHandler()
+    local serverInfos = authManager.getServerInfos()
     if not serverInfos then return end
+    if not loggedIn then return end
     positionsManager.checkForTimeouts()
 
     local headers = {
-        ["Authorization"] = "Bearer " .. authToken
+        ["Authorization"] = "Bearer " .. authManager.getToken()
     }
 
     local success, response, code = positionsHttpClient:json_post("/positions", headers, {
@@ -227,10 +214,14 @@ function BeamVoicePositionUpdateTimerHandler()
             loggedIn = false
             positionsManager.clearPositions()
             MP.SendChatMessage(-1, messagePrefix .. "^cVoice chat has been temporarily disabled due to issues. Should be back shortly...")
-            if not loginAudioNode() then
-                logger.error(logger.format("Re-authentication failed, disabling audio manager.", "red"))
-                disableAudioManager()
-            end
+            setTimeout(10 * 1000, function()
+                if loggedIn then return end
+                logger.info(logger.format("Attempting to re-authenticate with the audio node...", "yellow"))
+                if not loginAudioNode() then
+                    logger.error(logger.format("Re-authentication failed, disabling audio manager.", "red"))
+                    disableAudioManager()
+                end
+            end)
             return
         end
 

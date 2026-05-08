@@ -1,11 +1,11 @@
 local schemaUtils = require("impl.schemaUtils")
 
 local M = {}
+local initialized = false
 local timeoutDeleteSeconds = 30 -- In case of stale clients due to events
 
---- Variables
+-- Variables
 local playersPositions = {}
-local initialized = false
 
 local positionSchema = {
     camX = "number",

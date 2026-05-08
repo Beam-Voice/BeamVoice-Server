@@ -1,17 +1,17 @@
 local http = require("http")
+local authManager = require("voice.authManager")
 local positionsManager = require("voice.positionsManager")
 
 local M = {}
-
--- Variables
-local authToken = ""
-local serverInfos = nil
 local initialized = false
 
 -- Helpers
 local function sendKeyEvent(player_id, key)
     if not positionsManager.existsPlayer(player_id) then return false end
+    local authToken = authManager.getToken()
     if not authToken or authToken == "" then return false end
+    local serverInfos = authManager.getServerInfos()
+    if not serverInfos then return false end
 
     local headers = {
         ["Authorization"] = "Bearer " .. authToken
@@ -25,11 +25,8 @@ local function sendKeyEvent(player_id, key)
 end
 
 -- Functions
-local function init(newAuthToken, newServerInfos)
+local function init()
     logger.debug("Initializing Input Manager...")
-
-    authToken = newAuthToken
-    serverInfos = newServerInfos
 
     if initialized then return end
     MP.RegisterEvent("voice_toggleMute", "BeamVoiceInputToggleMuteHandler")
