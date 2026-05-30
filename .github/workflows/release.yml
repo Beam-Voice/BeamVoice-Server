@@ -67,8 +67,68 @@ jobs:
           name: BeamVoice-Server-${{ matrix.distro }}-${{ matrix.version }}-x86_64
           path: /tmp/BeamVoice-Server-${{ matrix.distro }}-${{ matrix.version }}-x86_64.zip
 
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git make zip curl tar
+            mingw-w64-x86_64-gcc
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Lua 5.3
+        run: |
+          # MSYS2 only ships Lua 5.4, so build 5.3 from source for LuaSocket to link against.
+          # Use the official lua.org tarball: the GitHub mirror lacks the platform make targets.
+          curl -sL https://www.lua.org/ftp/lua-5.3.6.tar.gz | tar xz -C /tmp
+          cd /tmp/lua-5.3.6
+          make mingw
+
+      - name: Build LuaSocket
+        run: |
+          git clone --depth 1 https://github.com/lunarmodules/luasocket.git /tmp/luasocket
+          cd /tmp/luasocket
+          make PLAT=mingw LUAV=5.3 \
+            LUAINC_mingw=/tmp/lua-5.3.6/src \
+            LUALIB_mingw=/tmp/lua-5.3.6/src/lua53.dll \
+            mingw
+
+      - name: Assemble package
+        run: |
+          # serial/unix are Unix-only modules; Windows ships only mime + socket cores.
+          mkdir -p lib/mime lib/socket
+          cp /tmp/luasocket/src/mime-*.dll   lib/mime/core.dll
+          cp /tmp/luasocket/src/socket-*.dll lib/socket/core.dll
+
+          ZIPNAME="BeamVoice-Server-windows-x86_64.zip"
+
+          EXCLUDE_ARGS="-x '.*' -x '*/.*' -x \"$ZIPNAME\""
+          while IFS= read -r entry; do
+            entry="$(echo "$entry" | xargs)"
+            [ -z "$entry" ] && continue
+            EXCLUDE_ARGS="$EXCLUDE_ARGS -x '$entry'"
+          done <<< "$EXCLUDE_LIST"
+
+          eval zip -r "$ZIPNAME" . $EXCLUDE_ARGS
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeamVoice-Server-windows-x86_64
+          path: BeamVoice-Server-windows-x86_64.zip
+
   release:
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -88,5 +148,6 @@ jobs:
           generate_release_notes: true
           body: |
             Files included in this release are:
-            ...
+            - `BeamVoice-Server-${DISTRO}-${DISTROVERSION}-${ARCH}` for linux builds, for example `BeamVoice-Server-debian-12-x86_64` for the Debian 12 build for x86_64.
+            - `BeamVoice-Server-windows-x86_64` for the Windows build (x86_64). You need to install the [Visual C++ Redistributables](https://aka.ms/vs/17/release/vc_redist.x64.exe) to run this.
           files: artifacts/**/*.zip

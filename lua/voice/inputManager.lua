@@ -29,23 +29,13 @@ local function init()
     logger.debug("Initializing Input Manager...")
 
     if initialized then return end
-    MP.RegisterEvent("voice_toggleMute", "BeamVoiceInputToggleMuteHandler")
-    MP.RegisterEvent("voice_toggleMuteGroup", "BeamVoiceInputToggleMuteGroupHandler")
-    MP.RegisterEvent("voice_toggleDeafenGroup", "BeamVoiceInputToggleDeafenGroupHandler")
+    MP.RegisterEvent("voice_keyEvent", "BeamVoiceInputKeyEventHandler")
     initialized = true
 end
 
 -- Event Handlers
-function BeamVoiceInputToggleMuteHandler(player_id)
-    sendKeyEvent(player_id, "mute")
-end
-
-function BeamVoiceInputToggleMuteGroupHandler(player_id)
-    sendKeyEvent(player_id, "group_mute")
-end
-
-function BeamVoiceInputToggleDeafenGroupHandler(player_id)
-    sendKeyEvent(player_id, "group_deafen")
+function BeamVoiceInputKeyEventHandler(player_id, data)
+    sendKeyEvent(player_id, data)
 end
 
 -- Exports

@@ -32,7 +32,7 @@ local function createGroupChat(name) -- return groupChatId or nil, and error cod
     end
 
     if code == 403 then -- invalid token or cap reached
-        logger.error(logger.format("Failed to create group chat: " .. (response or "Unknown error"), "red"))
+        logger.error("Failed to create group chat: " .. (type(response) == "table" and (response.error or "Unknown error") or response or "Unknown error"))
         if response and response.error and response.error:lower():find("cap") then
             return nil, -2
         end
@@ -60,11 +60,11 @@ local function deleteGroupChat(groupChatId)
     end
 
     if code == 404 then -- group not found
-        logger.error("Failed to delete group chat :" .. logger.format(groupChatId, "cyan") .. "): Not found.")
+        logger.error("Failed to delete group chat (" .. logger.format(groupChatId, "cyan") .. "): Not found.")
         return false, code
     end
 
-    logger.error("Failed to delete group chat :" .. logger.format(groupChatId, "cyan") .. "): " .. (response or "Unknown error"))
+    logger.error("Failed to delete group chat (" .. logger.format(groupChatId, "cyan") .. "): " .. (type(response) == "table" and (response.error or "Unknown error") or response or "Unknown error"))
     return false, code
 end
 
@@ -89,7 +89,7 @@ local function addPlayer(groupChatId, playerId)
         return false, code
     end
 
-    logger.error("Failed to add player " .. logger.format(playerId, "cyan") .. " to group chat " .. logger.format(groupChatId, "cyan") .. ": " .. (response or "Unknown error"))
+    logger.error("Failed to add player " .. logger.format(playerId, "cyan") .. " to group chat " .. logger.format(groupChatId, "cyan") .. ": " .. (type(response) == "table" and (response.error or "Unknown error") or response or "Unknown error"))
     return false, code
 end
 
@@ -114,7 +114,7 @@ local function removePlayer(groupChatId, playerId)
         return false, code
     end
 
-    logger.error("Failed to remove player " .. logger.format(playerId, "cyan") .. " from group chat " .. logger.format(groupChatId, "cyan") .. ": " .. (response or "Unknown error"))
+    logger.error("Failed to remove player " .. logger.format(playerId, "cyan") .. " from group chat " .. logger.format(groupChatId, "cyan") .. ": " .. (type(response) == "table" and (response.error or "Unknown error") or response or "Unknown error"))
     return false, code
 end
 
@@ -133,7 +133,7 @@ local function getPlayerInfos(playerId)
     end
 
     if code ~= 404 then -- 404 just means the player is not in a group, it's not an error
-        logger.error("Failed to get group chat informationsfor player " .. logger.format(playerId, "cyan") .. ": " .. (response or "Unknown error"))
+        logger.error("Failed to get group chat informationsfor player " .. logger.format(playerId, "cyan") .. ": " .. (type(response) == "table" and (response.error or "Unknown error") or response or "Unknown error"))
     end
 
     return nil, code

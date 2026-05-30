@@ -73,31 +73,6 @@ function BeamVoiceOnChatMessageHandler(player_id, _, message)
         end
         return 1
     end
-
-    if message:sub(1, 4) == "/gc " then
-        local groupChatId = message:sub(5)
-        if gcManager.addPlayer(groupChatId, player_id) then
-            MP.SendChatMessage(player_id, messagePrefix .. "You just joined the group chat ^b" .. groupChatId .. "^r !")
-        else
-            MP.SendChatMessage(player_id, messagePrefix .. "Failed to join the group chat ^b" .. groupChatId .. "^r. Please check the group chat ID and try again.")
-        end
-        return 1
-    end
-
-    if message == "/gcl" or message == "/gcleave" then
-        if not gcManager.isPlayerInAnyGroup(player_id) then
-            MP.SendChatMessage(player_id, messagePrefix .. "You are not in any group chat.")
-            return 1
-        end
-
-        local success = gcManager.removePlayer(gcManager.getPlayerGroup(player_id), player_id)
-        if success then
-            MP.SendChatMessage(player_id, messagePrefix .. "You just left the group chat !")
-        else
-            MP.SendChatMessage(player_id, messagePrefix .. "Failed to leave the group chat.")
-        end
-        return 1
-    end
 end
 MP.RegisterEvent("onChatMessage", "BeamVoiceOnChatMessageHandler")
 
@@ -125,8 +100,3 @@ function BeamVoiceOnConsoleInputHandler(cmd)
     end
 end
 MP.RegisterEvent("onConsoleInput", "BeamVoiceOnConsoleInputHandler")
-
-for i = 1, authManager.getServerInfos().audio_channels do
-    logger.info("Creating test group chat " .. i)
-    gcManager.create("Test Group Chat " .. i)
-end
