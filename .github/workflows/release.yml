@@ -90,17 +90,24 @@ jobs:
         run: |
           # MSYS2 only ships Lua 5.4, so build 5.3 from source for LuaSocket to link against.
           # Use the official lua.org tarball: the GitHub mirror lacks the platform make targets.
+          # Build a STATIC liblua.a (without -DLUA_BUILD_AS_DLL) so Lua is linked directly
+          # into the LuaSocket DLLs instead of depending on an external lua53.dll:
+          # BeamMP-Server embeds Lua statically and ships no lua53.dll alongside the exe.
           curl -sL https://www.lua.org/ftp/lua-5.3.6.tar.gz | tar xz -C /tmp
-          cd /tmp/lua-5.3.6
-          make mingw
+          cd /tmp/lua-5.3.6/src
+          make liblua.a
 
       - name: Build LuaSocket
         run: |
           git clone --depth 1 https://github.com/lunarmodules/luasocket.git /tmp/luasocket
           cd /tmp/luasocket
+          # Link Lua statically (liblua.a) and statically link the MinGW runtime
+          # (-static-libgcc -static) so the resulting core DLLs are fully self-contained:
+          # no lua53.dll, libgcc_s_seh-1.dll or libwinpthread-1.dll dependency at load time.
           make PLAT=mingw LUAV=5.3 \
             LUAINC_mingw=/tmp/lua-5.3.6/src \
-            LUALIB_mingw=/tmp/lua-5.3.6/src/lua53.dll \
+            LUALIB_mingw=/tmp/lua-5.3.6/src/liblua.a \
+            MYLDFLAGS="-static-libgcc -static" \
             mingw
 
       - name: Assemble package
