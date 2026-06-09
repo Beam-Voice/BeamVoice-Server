@@ -148,7 +148,6 @@ local function getGroups()
     local headers = { ["Authorization"] = "Bearer " .. authManager.getToken() }
 
     local success, response, code = http.get("http://" .. authManager.getServerInfos().http_url .. "/groups", headers)
-    print("getGroups response:", success, response, code)
 
     if success and response then
         return response, code

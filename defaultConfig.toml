@@ -3,5 +3,5 @@ key = "change-me"
 debug = false
 
 [distance]
-min = 30 # Test
-max = 100 # Test
+min = 30 # Distance at which the volume starts to fade
+max = 100 # Distance at which you stop hearing others

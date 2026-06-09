@@ -133,6 +133,7 @@ local function auth(serverKey)
             logger.error(logger.format("Authentication failed: invalid token payload.", "red"))
             return false
         end
+        logger.info("Authentication successful, connected to: " .. logger.format(payload.url, "purple"))
         authToken = response.token
         serverInfos = payload
         return true

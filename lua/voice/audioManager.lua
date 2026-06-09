@@ -176,7 +176,7 @@ local function init()
     MP.RegisterEvent("BeamVoicePositionUpdateTimer", "BeamVoicePositionUpdateTimerHandler")
     MP.CreateEventTimer("BeamVoicePositionUpdateTimer", serverInfos.min_update_interval)
 
-    logger.info(logger.format("Audio Manager Initialized", "green"))
+    logger.info("Audio Manager Initialized")
     return true
 end
 
