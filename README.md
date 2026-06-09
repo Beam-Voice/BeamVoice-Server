@@ -2,22 +2,30 @@
 
 A BeamMP plugin that adds positional voice chat to BeamMP servers.
 
-## Status
-
-**Work in progress.** The project is under active development and is **not ready for public use** yet. The API, configuration, and behavior may change at any time.
-
 ## Access
 
-Running the plugin requires a valid **authentication key (`key`)** set in `configs/BeamVoice.toml`. This key is only handed out to **private beta** participants.
-
-If you do not have private beta access, you will not be able to obtain a key and the plugin will refuse to start. There is currently no public sign-up - broader access will open later, once the project stabilizes.
+Running the plugin requires a valid **authentication key (`key`)** set in `configs/BeamVoice.toml`.
+Get your key at https://beamvoice.net
 
 ## Installation (private beta only)
 
-1. Drop the folder into your server's `Resources/Server/` directory.
-2. Copy `defaultConfig.toml` to `configs/BeamVoice.toml`.
-3. Fill in the `key` rovided by the BeamVoice team.
-4. Start the BeamMP server.
+1. Drop the folder into your server's `Resources/Server/` directory, and un-archive it ! It should look like that:
+```
+Resources/Server/
+└── BeamVoice/
+    ├── lib
+    ├── lua
+    ├── defaultConfig.toml
+    └── main.lua
+```
+2. Start the server to generate the config file.
+3. Edit the `configs/BeamVoice.toml` file, fill in the `key`.
+4. Re-Start the BeamMP server.
+
+## Console commands
+
+- `voice reauth` - Reauth the server
+- `voice status` - Check if the voice chat is enabenabled or not.
 
 ## In-game commands
 

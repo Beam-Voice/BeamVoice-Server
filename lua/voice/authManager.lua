@@ -2,6 +2,7 @@ local http = require("http")
 local jwt = require("jwt")
 local socket = require("libs.socket")
 local schemaUtils = require("impl.schemaUtils")
+local config = require("config")
 
 local M = {}
 
@@ -112,14 +113,20 @@ local function auth(serverKey)
     end
 
     local serversPing = pingServers(getServersToPing(usedAuthServer))
-    -- print(serversPing)
 
     -- AUTH
     local headers = {
         ["Authorization"] = "Bearer " .. serverKey
     }
 
-    local success, response, code = http.post("http://" .. usedAuthServer .. "/auth", headers, {})
+    if (not config.distance or not config.distance.min or not config.distance.max or config.distance.min < 0 or config.distance.max <= config.distance.min) then
+        logger.error(logger.format("Invalid distance configuration. Please check your config file.", "red"))
+        return false
+    end
+    local success, response, code = http.post("http://" .. usedAuthServer .. "/auth", headers, {
+        min_distance = config.distance.min, max_distance = config.distance.max,
+        servers_ping = serversPing
+    })
     if success and type(response) == "table" and jwt.isValid(response.token) then
         local payload = jwt.parse(response.token).payload
         if not payload or not schemaUtils.validateObject(payload, tokenSchema) then
@@ -130,7 +137,13 @@ local function auth(serverKey)
         serverInfos = payload
         return true
     else
-        logger.error(logger.format("Authentication failed.", "red"))
+        if type(response) == "string" then
+            logger.error("Authentication failed: " .. logger.format(response, "red"))
+        elseif type(response) == "table" and response.error then
+            logger.error("Authentication failed: " .. logger.format(response.error, "red"))
+        else
+            logger.error("Authentication failed " .. logger.format("unknown error (" .. code .. ")", "red"))
+        end
         return false
     end
 end

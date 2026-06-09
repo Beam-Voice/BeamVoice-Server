@@ -139,6 +139,24 @@ local function getPlayerInfos(playerId)
     return nil, code
 end
 
+local function getGroups()
+    if not authManager.getToken() then
+        logger.error(logger.format("Cannot get player infos without a valid authentication token.", "red"))
+        return nil, -1
+    end
+
+    local headers = { ["Authorization"] = "Bearer " .. authManager.getToken() }
+
+    local success, response, code = http.get("http://" .. authManager.getServerInfos().http_url .. "/groups", headers)
+    print("getGroups response:", success, response, code)
+
+    if success and response then
+        return response, code
+    end
+
+    return nil, code
+end
+
 local function init()
     logger.debug("Initializing GroupChats...")
     groupChats = {}
@@ -153,6 +171,7 @@ M.delete = deleteGroupChat
 M.addPlayer = addPlayer
 M.removePlayer = removePlayer
 M.getPlayerInfos = getPlayerInfos
+M.getGroups = getGroups
 
 M.getName = function(groupChatId) return groupChats[groupChatId] end
 

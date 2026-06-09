@@ -39,6 +39,7 @@ local function init()
     MP.RegisterEvent("BeamVoiceAPI_addPlayerToGroupChat", "BeamVoiceAPI_addPlayerToGroupChatHandler")
     MP.RegisterEvent("BeamVoiceAPI_removePlayerFromGroupChat", "BeamVoiceAPI_removePlayerFromGroupChatHandler")
     MP.RegisterEvent("BeamVoiceAPI_getPlayerInfos", "BeamVoiceAPI_getPlayerInfosHandler")
+    MP.RegisterEvent("BeamVoiceAPI_getGroupsChat", "BeamVoiceAPI_getGroupsChatHandler")
 
     initialized = true
     return true
@@ -72,6 +73,11 @@ end
 function BeamVoiceAPI_getPlayerInfosHandler(playerId)
     local playerInfos, errorCode = gcManager.getPlayerInfos(playerId)
     return {playerInfos, errorCode}
+end
+
+function BeamVoiceAPI_getGroupsChatHandler()
+    local groups, errorCode = gcManager.getGroups()
+    return {groups, errorCode}
 end
 
 -- Exports

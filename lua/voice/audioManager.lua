@@ -214,7 +214,7 @@ function BeamVoicePositionUpdateTimerHandler()
             loggedIn = false
             positionsManager.clearPositions()
             MP.SendChatMessage(-1, messagePrefix .. "^cVoice chat has been temporarily disabled due to issues. Should be back shortly...")
-            setTimeout(10 * 1000, function()
+            setTimeout(30 * 1000, function()
                 if loggedIn then return end
                 logger.info(logger.format("Attempting to re-authenticate with the audio node...", "yellow"))
                 if not loginAudioNode() then
@@ -225,7 +225,7 @@ function BeamVoicePositionUpdateTimerHandler()
             return
         end
 
-        if code == 502 then
+        if code == 502 or code == 0 then
             consecutiveFailures = consecutiveFailures + 1
             if (consecutiveFailures * serverInfos.min_update_interval / 1000 > maxFailureSeonds) then
                 logger.error(logger.format("Audio node is unavailable for more than " .. maxFailureSeonds .. " seconds, disabling audio manager.", "red"))

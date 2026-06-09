@@ -1,3 +1,7 @@
 # This is the BeamVoice config file.
 key = "change-me"
 debug = false
+
+[distance]
+min = 30 # Test
+max = 100 # Test

@@ -2,7 +2,7 @@ local schemaUtils = require("impl.schemaUtils")
 
 local M = {}
 local initialized = false
-local timeoutDeleteSeconds = 30 -- In case of stale clients due to events
+local timeoutDeleteSeconds = 120 -- In case of stale clients due to events
 
 -- Variables
 local playersPositions = {}
